@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Consumo Eléctrico Proyectado - Interactivo</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            background-color: #f4f6f9;
+            color: #1e293b;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 30px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .controls-row {
+            display: flex;
+            justify-content: space-between;
+            background: #ffffff;
+            padding: 20px 25px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 20px;
+            align-items: center;
+            gap: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .control-group {
+            flex: 1;
+        }
+        .control-label {
+            font-size: 0.85rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+        }
+        .slider-input {
+            width: 100%;
+            accent-color: #0ea5e9;
+            cursor: pointer;
+        }
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        .card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .card-title {
+            font-size: 0.75rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .card-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #0ea5e9;
+            margin-bottom: 5px;
+        }
+        .card-value.orange {
+            color: #d97706;
+        }
+        .card-subtitle {
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+        .chart-container {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- Controles Interactivos -->
+        <div class="controls-row">
+            <div class="control-group">
+                <div class="control-label">
+                    <span>Horizonte de proyección</span>
+                    <span id="val-horizonte" style="color:#0ea5e9">12 meses</span>
+                </div>
+                <input type="range" id="horizon-slider" class="slider-input" min="3" max="24" value="12" step="1">
+            </div>
+            <div class="control-group">
+                <div class="control-label">
+                    <span>Incremento anual estimado de tarifa (COP/kWh)</span>
+                    <span id="val-tarifa" style="color:#0ea5e9">6.0%</span>
+                </div>
+                <input type="range" id="tariff-slider" class="slider-input" min="0" max="20" value="6" step="0.5">
+            </div>
+        </div>
+
+        <!-- Tarjetas de Métricas -->
+        <div class="cards-grid">
+            <div class="card">
+                <div class="card-title">Consumo Esperado</div>
+                <div class="card-value" id="card-consumo">0.0 kWh</div>
+                <div class="card-subtitle"><span id="txt-horizonte-sub">12</span> meses proyectados</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Tarifa Final Estimada</div>
+                <div class="card-value orange" id="card-tarifa">$0.0 /kWh</div>
+                <div class="card-subtitle">mes final (base: $850.0)</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Costo Esperado</div>
+                <div class="card-value orange" id="card-costo">$0</div>
+                <div class="card-subtitle">acumulado horizonte</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Rango (IC 90%)</div>
+                <div class="card-value" id="card-rango" style="font-size: 1.2rem; color: #1e293b; padding-top: 2px; font-weight: 700;">$0 — $0</div>
+                <div class="card-subtitle">costo mínimo — máximo esperado</div>
+            </div>
+        </div>
+
+        <!-- Gráfica 1 -->
+        <div class="chart-container">
+            <div id="chart-consumo" style="width:100%; height:340px;"></div>
+        </div>
+
+        <!-- Gráfica 2 -->
+        <div class="chart-container">
+            <div id="chart-costo" style="width:100%; height:340px;"></div>
+        </div>
+
+    </div>
+
+    <script>
+        const baseConsumoMensual = [76.5, 76.8, 76.2, 75.5, 74.8, 74.1, 74.5, 75.0, 73.5, 72.4, 72.2, 70.1, 71.0, 70.5, 69.8, 69.2, 68.5, 68.0, 68.3, 68.8, 67.5, 66.4, 66.2, 64.1];
+        const tarifaBase = 850.0;
+
+        function actualizarDashboard() {
+            const horizonte = parseInt(document.getElementById('horizon-slider').value);
+            const incrementoTarifa = parseFloat(document.getElementById('tariff-slider').value) / 100.0;
+
+            document.getElementById('val-horizonte').innerText = horizonte + " meses";
+            document.getElementById('val-tarifa').innerText = (incrementoTarifa * 100).toFixed(1) + "%";
+            document.getElementById('txt-horizonte-sub').innerText = horizonte;
+
+            let fechas = [];
+            let consumo = [];
+            let tarifas = [];
+            let costosMiles = [];
+
+            let fechaInicio = new Date(2026, 6, 1);
+            let totalConsumo = 0;
+            let totalCosto = 0;
+
+            for (let i = 0; i < horizonte; i++) {
+                let d = new Date(fechaInicio);
+                d.setMonth(fechaInicio.getMonth() + i);
+                let fechaStr = d.toISOString().slice(0, 7);
+                fechas.push(fechaStr);
+
+                let c = baseConsumoMensual[i % baseConsumoMensual.length];
+                consumo.push(c);
+                totalConsumo += c;
+
+                let t = tarifaBase * Math.pow(1 + incrementoTarifa, i / 12);
+                tarifas.push(t);
+
+                let costoMes = c * t;
+                totalCosto += costoMes;
+                costosMiles.push(costoMes / 1000.0);
+            }
+
+            let tarifaFinal = tarifas[tarifas.length - 1];
+            let rangoMin = totalCosto * 0.96;
+            let rangoMax = totalCosto * 1.04;
+
+            document.getElementById('card-consumo').innerText = totalConsumo.toLocaleString('es-CO', {maximumFractionDigits: 1}) + " kWh";
+            document.getElementById('card-tarifa').innerText = "$" + tarifaFinal.toLocaleString('es-CO', {maximumFractionDigits: 1}) + " /kWh";
+            document.getElementById('card-costo').innerText = "$" + Math.round(totalCosto).toLocaleString('es-CO');
+            document.getElementById('card-rango').innerText = "$" + Math.round(rangoMin).toLocaleString('es-CO') + " — $" + Math.round(rangoMax).toLocaleString('es-CO');
+
+            let traceConsumo = {
+                x: fechas,
+                y: consumo,
+                mode: 'lines+markers',
+                name: 'Consumo esperado',
+                line: {color: '#0ea5e9', width: 3},
+                marker: {size: 7}
+            };
+            let layoutConsumo = {
+                title: {
+                    text: '<b>PROYECCIÓN DE CONSUMO ELÉCTRICO MENSUAL</b>',
+                    font: {size: 13, color: '#0f172a', family: 'Segoe UI'}
+                },
+                paper_bgcolor: '#ffffff',
+                plot_bgcolor: '#ffffff',
+                font: {family: 'Segoe UI', color: '#334155', size: 12},
+                margin: {l: 65, r: 30, t: 50, b: 50},
+                xaxis: {
+                    title: {text: 'Mes de Proyección', font: {size: 12, color: '#475569', weight: 'bold'}},
+                    gridcolor: '#f1f5f9',
+                    tickfont: {size: 11, color: '#334155'}
+                },
+                yaxis: {
+                    title: {text: 'Consumo (kWh)', font: {size: 12, color: '#475569', weight: 'bold'}},
+                    gridcolor: '#f1f5f9',
+                    tickfont: {size: 11, color: '#334155'}
+                },
+                showlegend: false
+            };
+            Plotly.react('chart-consumo', [traceConsumo], layoutConsumo, {responsive: true});
+
+            let traceCosto = {
+                x: fechas,
+                y: costosMiles,
+                mode: 'lines+markers',
+                name: 'Costo esperado',
+                line: {color: '#d97706', width: 3},
+                marker: {size: 7}
+            };
+            let layoutCosto = {
+                title: {
+                    text: '<b>PROYECCIÓN DE COSTO MENSUAL (MILES DE COP)</b>',
+                    font: {size: 13, color: '#0f172a', family: 'Segoe UI'}
+                },
+                paper_bgcolor: '#ffffff',
+                plot_bgcolor: '#ffffff',
+                font: {family: 'Segoe UI', color: '#334155', size: 12},
+                margin: {l: 65, r: 30, t: 50, b: 50},
+                xaxis: {
+                    title: {text: 'Mes de Proyección', font: {size: 12, color: '#475569', weight: 'bold'}},
+                    gridcolor: '#f1f5f9',
+                    tickfont: {size: 11, color: '#334155'}
+                },
+                yaxis: {
+                    title: {text: 'Costo (Miles COP)', font: {size: 12, color: '#475569', weight: 'bold'}},
+                    gridcolor: '#f1f5f9',
+                    tickfont: {size: 11, color: '#334155'},
+                    tickformat: '.1f'
+                },
+                showlegend: false
+            };
+            Plotly.react('chart-costo', [traceCosto], layoutCosto, {responsive: true});
+        }
+
+        document.getElementById('horizon-slider').addEventListener('input', actualizarDashboard);
+        document.getElementById('tariff-slider').addEventListener('input', actualizarDashboard);
+
+        actualizarDashboard();
+    </script>
+</body>
+</html>
